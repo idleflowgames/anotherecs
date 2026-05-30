@@ -1,0 +1,79 @@
+{
+  "name": "@idleflowgames/anotherecs",
+  "version": "0.1.0",
+  "description": "A small, fast, deterministic, dependency-free Entity Component System for TypeScript.",
+  "keywords": [
+    "ecs",
+    "entity-component-system",
+    "gamedev",
+    "typescript",
+    "deterministic"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist/*.js",
+    "dist/*.js.map",
+    "dist/*.d.ts",
+    "dist/*.d.ts.map",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/idleflowgames/anotherecs.git"
+  },
+  "bugs": {
+    "url": "https://github.com/idleflowgames/anotherecs/issues"
+  },
+  "homepage": "https://github.com/idleflowgames/anotherecs#readme",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "packageManager": "pnpm@11.5.0",
+  "engines": {
+    "node": ">=22",
+    "pnpm": ">=11"
+  },
+  "scripts": {
+    "build": "vite build && tsc -p tsconfig.build.json",
+    "pack:check": "pnpm build && pnpm pack --dry-run",
+    "prepublishOnly": "pnpm verify:release",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --dir test",
+    "test:package": "vitest run --dir test",
+    "test:watch": "vitest",
+    "bench": "vitest bench --run",
+    "demo": "vite --host 127.0.0.1 --config examples/pixi-demo/vite.config.ts",
+    "demo:build": "vite build --config examples/pixi-demo/vite.config.ts",
+    "demo:screenshots": "node scripts/capture-demo-screenshots.mjs",
+    "demo:test": "vitest --config examples/pixi-demo/vite.config.ts run examples/pixi-demo/src/**/*.test.ts",
+    "demo:typecheck": "tsc -p examples/pixi-demo/tsconfig.json --noEmit",
+    "check": "biome check .",
+    "check:package": "biome check src test bench package.json tsconfig.json tsconfig.build.json vite.config.ts README.md CHANGELOG.md",
+    "verify": "pnpm check && pnpm typecheck && pnpm test && pnpm pack:check",
+    "verify:release": "pnpm check:package && pnpm typecheck && pnpm test:package && pnpm pack:check"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.10",
+    "pixi.js": "^8.18.1",
+    "playwright": "^1.60.0",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.14",
+    "vitest": "^4"
+  }
+}

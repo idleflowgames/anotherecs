@@ -1,0 +1,18 @@
+node_modules/
+dist/
+dist-*/
+*.log
+.DS_Store
+coverage/
+.vite/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+
+# Local-only agent context
+/CLAUDE.md
+/SPEC.md
+.agents/
+.claude/
+skills-lock.json

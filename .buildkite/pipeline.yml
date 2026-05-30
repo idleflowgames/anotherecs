@@ -1,0 +1,18 @@
+agents:
+  queue: linux-medium
+
+env:
+  CI: "true"
+  FORCE_COLOR: "1"
+
+steps:
+  - label: ":typescript: verify package"
+    key: verify
+    command: .buildkite/scripts/verify.sh
+    timeout_in_minutes: 15
+
+  - label: ":pipeline: publish gate"
+    key: publish-gate
+    depends_on: verify
+    command: .buildkite/scripts/upload-publish-steps.sh
+    timeout_in_minutes: 5
