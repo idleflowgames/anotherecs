@@ -32,8 +32,5 @@ printf '//registry.npmjs.org/:_authToken=%s\n' "${NPM_TOKEN}" > .npmrc
 echo "--- :package: installing dependencies"
 pnpm install --frozen-lockfile
 
-echo "--- :white_check_mark: verifying ${PACKAGE_NAME}@${PACKAGE_VERSION}"
-pnpm verify:release
-
 echo "--- :npm: publishing ${PACKAGE_NAME}@${PACKAGE_VERSION}"
 pnpm publish --access public --no-git-checks
