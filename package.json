@@ -1,6 +1,6 @@
 {
   "name": "@idleflowgames/anotherecs",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A small, fast, deterministic, dependency-free Entity Component System for TypeScript.",
   "keywords": [
     "ecs",
