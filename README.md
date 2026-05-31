@@ -11,6 +11,8 @@ and spatial queries are opt-in.
 
 ![Swarm arena demo](./docs/screenshots/swarm-arena-hero.png)
 
+*The swarm arena demo. Source: [`examples/pixi-demo`](./examples/pixi-demo).*
+
 ## What You Get
 
 - **Sparse-set component storage.** Components live in dense arrays for fast
