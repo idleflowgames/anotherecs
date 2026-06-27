@@ -343,9 +343,12 @@ export class QueryEngine {
     if (ents.length === 0) return; // no matches -> stores may be short; never read
     const stores = cache.stores;
     // Fast switch only when every yielded slot is a required `with` store
-    // (yield arity === withIds length, no maybe terms) and arity <= 4. Any spec
-    // with a maybe term or yield arity > 4 falls to the generic scratch lane.
-    if (cache.yieldPlan.length === cache.ids.length && cache.ids.length <= 4) {
+    // (yield arity === withIds length, no maybe terms) and arity <= 6. Any spec
+    // with a maybe term or yield arity > 6 falls to the generic scratch lane.
+    // The 5/6 cases matter for wide hot queries (e.g. a per-frame 5-component
+    // physics/separation pass): they avoid the generic lane's per-entity
+    // `fn.apply(undefined, scratch)`, which is markedly slower than a direct call.
+    if (cache.yieldPlan.length === cache.ids.length && cache.ids.length <= 6) {
       switch (cache.ids.length) {
         case 1: {
           const s0 = stores[0];
@@ -391,10 +394,50 @@ export class QueryEngine {
           }
           break;
         }
+        case 5: {
+          const s0 = stores[0];
+          const s1 = stores[1];
+          const s2 = stores[2];
+          const s3 = stores[3];
+          const s4 = stores[4];
+          for (let i = 0; i < ents.length; i++) {
+            const e = ents[i];
+            fn(
+              e,
+              s0.getUnsafe(e),
+              s1.getUnsafe(e),
+              s2.getUnsafe(e),
+              s3.getUnsafe(e),
+              s4.getUnsafe(e),
+            );
+          }
+          break;
+        }
+        case 6: {
+          const s0 = stores[0];
+          const s1 = stores[1];
+          const s2 = stores[2];
+          const s3 = stores[3];
+          const s4 = stores[4];
+          const s5 = stores[5];
+          for (let i = 0; i < ents.length; i++) {
+            const e = ents[i];
+            fn(
+              e,
+              s0.getUnsafe(e),
+              s1.getUnsafe(e),
+              s2.getUnsafe(e),
+              s3.getUnsafe(e),
+              s4.getUnsafe(e),
+              s5.getUnsafe(e),
+            );
+          }
+          break;
+        }
       }
       return;
     }
-    // Generic scratch lane for 5+ components and maybe-bearing specs.
+    // Generic scratch lane for 7+ components and maybe-bearing specs.
     // Reuses one per-cache scratch array (sized in resolveSpecStores, or here
     // for a pure-with 5+ cache), so it stays zero-per-entity-allocation. Optional
     // slots fetch via `.get`, required via `.getUnsafe`; a never-created maybe

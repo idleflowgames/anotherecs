@@ -13,6 +13,19 @@
 import { DEFAULT_MAX_ENTITIES } from "./store";
 import type { Entity } from "./types";
 
+// `Map.forEach` callback for SpatialHash.clear(): prune a bucket that went unused
+// last frame, else reset its array to length 0 for refill. Hoisted to module
+// scope (and invoked with the cell Map as `thisArg`) so clear() allocates no
+// per-frame closure. `this` is the SpatialHash's `cells` map.
+function pruneOrReset(
+  this: Map<number, Entity[]>,
+  cell: Entity[],
+  key: number,
+): void {
+  if (cell.length === 0) this.delete(key);
+  else cell.length = 0;
+}
+
 export class SpatialHash {
   private invCellSize: number;
   private cells = new Map<number, Entity[]>();
@@ -42,9 +55,18 @@ export class SpatialHash {
   }
 
   clear(): void {
-    this.cells.clear();
+    // Reuse cell arrays across frames instead of dropping them. Dropping every
+    // bucket (the old `cells.clear()`) churned the GC and forced the Map to be
+    // rebuilt from scratch each frame — by far the hottest cost in a per-frame
+    // broadphase rebuild. Instead: an actively-used bucket keeps its backing
+    // array and is reset to length 0 for refill; a bucket that received no
+    // inserts last frame is pruned (a one-frame lag), so an unbounded / roaming
+    // world can't accumulate dead buckets. After warmup on a bounded arena this
+    // allocates nothing and never mutates the Map's key set. Query/insert results
+    // and per-cell iteration order are unchanged (insertion order is preserved).
     // `generation` is intentionally NOT reset; monotonic gens keep the dedup
     // correct across frames without having to clear `seen`.
+    this.cells.forEach(pruneOrReset, this.cells);
   }
 
   insert(entity: Entity, x: number, y: number, radius: number): void {
