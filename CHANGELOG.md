@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.4
 
 - `SpatialHash`: `clear()` is now O(1). Buckets carry a frame stamp and a live
   prefix count, so a stamp bump retires the whole grid and a periodic sweep
