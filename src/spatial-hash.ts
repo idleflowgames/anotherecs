@@ -9,30 +9,53 @@
 // counter never collides. That avoids the false-negative a position-derived
 // generation would risk: two queries at colliding positions could share a
 // generation, so one would skip an entity the other already marked.
+//
+// Three occupancy structures keep a query off cells nothing was inserted into, all
+// of them supersets of the true occupied set (so they can only skip cells that are
+// provably empty, never change a result):
+//   * the frame stamp on each bucket, which makes `clear()` O(1);
+//   * the occupied bounding box, which clamps a query's cell span;
+//   * the per-column occupied row range, which clamps it again per column.
 
 import { DEFAULT_MAX_ENTITIES } from "./store";
 import type { Entity } from "./types";
 
-// `Map.forEach` callback for SpatialHash.clear(): prune a bucket that went unused
-// last frame, else reset its array to length 0 for refill. Hoisted to module
-// scope (and invoked with the cell Map as `thisArg`) so clear() allocates no
-// per-frame closure. `this` is the SpatialHash's `cells` map.
-function pruneOrReset(
-  this: Map<number, Entity[]>,
-  cell: Entity[],
-  key: number,
-): void {
-  if (cell.length === 0) this.delete(key);
-  else cell.length = 0;
+/** Direct-mapped column slots, indexed `cx & COL_MASK`. Aliasing two columns onto
+ *  one slot merges their row ranges, which is a superset, so results are unchanged. */
+const COL_SLOTS = 256;
+const COL_MASK = COL_SLOTS - 1;
+/** Clears between prunes. A bucket survives up to 2x this many idle frames. */
+const SWEEP_PERIOD = 64;
+const I32_MIN = -2147483648;
+const I32_MAX = 2147483647;
+
+/** A grid bucket. `e` is retained across frames and `n` is the live prefix length;
+ *  `g` is the frame stamp, so a bucket from an earlier frame reads as empty. */
+interface Cell {
+  e: Entity[];
+  n: number;
+  g: number;
 }
 
 export class SpatialHash {
   private invCellSize: number;
-  private cells = new Map<number, Entity[]>();
+  private cells = new Map<number, Cell>();
   // `seen[entity]` holds the generation of the last query that visited it. Gens
   // are monotonic and start at 1, so the zero-initialised array reads as unseen.
   private generation = 0;
   private readonly seen: Int32Array;
+  // Occupied bounding box in cell coordinates for the current frame; empty while
+  // `occMaxCX < occMinCX`, which collapses every query's cell span to nothing.
+  private occMinCX = 0;
+  private occMaxCX = -1;
+  private occMinCY = 0;
+  private occMaxCY = -1;
+  // Per column: [frame stamp, min occupied cy, max occupied cy].
+  private readonly col = new Int32Array(COL_SLOTS * 3);
+  // Frame stamp, never 0 (0 is the zero-filled "never written" reading of `col`)
+  // and never past I32_MAX, so it stays a Smi and matches `col`'s int32 domain.
+  private frameGen = 1;
+  private sweepIn = SWEEP_PERIOD;
 
   /**
    * @param cellSize    grid cell size in world units. Must be > 0.
@@ -55,42 +78,108 @@ export class SpatialHash {
   }
 
   clear(): void {
-    // Reuse cell arrays across frames instead of dropping them. Dropping every
-    // bucket (the old `cells.clear()`) churned the GC and forced the Map to be
-    // rebuilt from scratch each frame — by far the hottest cost in a per-frame
-    // broadphase rebuild. Instead: an actively-used bucket keeps its backing
-    // array and is reset to length 0 for refill; a bucket that received no
-    // inserts last frame is pruned (a one-frame lag), so an unbounded / roaming
-    // world can't accumulate dead buckets. After warmup on a bounded arena this
-    // allocates nothing and never mutates the Map's key set. Query/insert results
-    // and per-cell iteration order are unchanged (insertion order is preserved).
-    // `generation` is intentionally NOT reset; monotonic gens keep the dedup
-    // correct across frames without having to clear `seen`.
-    this.cells.forEach(pruneOrReset, this.cells);
+    // O(1): bump the frame stamp, and every bucket, column range and bounding box
+    // written by an earlier frame reads as empty. Nothing is walked per frame.
+    // The cost is retention: a dead bucket is only reclaimed by the periodic
+    // sweep, so an unbounded / roaming world holds the buckets touched in the last
+    // 2 sweep periods rather than the last frame. Per-cell push order and per-cell
+    // visit order are untouched, so a result array keeps both its membership and
+    // its ORDER. `generation` is deliberately NOT reset: monotonic gens are what
+    // keep the query dedup correct across frames.
+    this.occMinCX = 0;
+    this.occMaxCX = -1;
+    this.occMinCY = 0;
+    this.occMaxCY = -1;
+    const fg = this.frameGen + 1;
+    if (fg >= I32_MAX) {
+      // Wrap. Every stamp restarts, so nothing may survive carrying an old one.
+      this.cells.clear();
+      this.col.fill(0);
+      this.frameGen = 1;
+      this.sweepIn = SWEEP_PERIOD;
+      return;
+    }
+    this.frameGen = fg;
+    if (--this.sweepIn <= 0) {
+      this.sweepIn = SWEEP_PERIOD;
+      this.cells.forEach(this.pruneStale, this);
+    }
+  }
+
+  /** `Map.forEach` callback for the periodic sweep, invoked with the hash as
+   *  `thisArg` so it allocates no per-sweep closure. */
+  private pruneStale(cell: Cell, key: number): void {
+    if (this.frameGen - cell.g >= SWEEP_PERIOD) this.cells.delete(key);
   }
 
   insert(entity: Entity, x: number, y: number, radius: number): void {
-    if ((entity as number) >= this.seen.length) {
+    const seen = this.seen;
+    if ((entity as number) >= seen.length) {
       throw new Error(
         `SpatialHash.insert(): entity id ${entity} exceeds maxEntities ` +
-          `(${this.seen.length}). Construct the SpatialHash with a maxEntities ` +
+          `(${seen.length}). Construct the SpatialHash with a maxEntities ` +
           `that matches the consuming World's capacity.`,
       );
     }
-    const minCX = Math.floor((x - radius) * this.invCellSize);
-    const maxCX = Math.floor((x + radius) * this.invCellSize);
-    const minCY = Math.floor((y - radius) * this.invCellSize);
-    const maxCY = Math.floor((y + radius) * this.invCellSize);
+    const cells = this.cells;
+    const inv = this.invCellSize;
+    const minCX = Math.floor((x - radius) * inv);
+    const maxCX = Math.floor((x + radius) * inv);
+    const minCY = Math.floor((y - radius) * inv);
+    const maxCY = Math.floor((y + radius) * inv);
+
+    if (this.occMaxCX < this.occMinCX) {
+      this.occMinCX = minCX;
+      this.occMaxCX = maxCX;
+      this.occMinCY = minCY;
+      this.occMaxCY = maxCY;
+    } else {
+      if (minCX < this.occMinCX) this.occMinCX = minCX;
+      if (maxCX > this.occMaxCX) this.occMaxCX = maxCX;
+      if (minCY < this.occMinCY) this.occMinCY = minCY;
+      if (maxCY > this.occMaxCY) this.occMaxCY = maxCY;
+    }
+
+    const col = this.col;
+    const fg = this.frameGen;
+    // `col` is int32, so a row index past that domain is stored WIDENED to the
+    // domain edge. Widening keeps the stored range a superset; truncating it
+    // would wrap into a narrower range and drop results.
+    const cLo = minCY < I32_MIN ? I32_MIN : minCY;
+    const cHi = maxCY > I32_MAX ? I32_MAX : maxCY;
 
     for (let cx = minCX; cx <= maxCX; cx++) {
+      const ci = (cx & COL_MASK) * 3;
+      if (col[ci] !== fg) {
+        col[ci] = fg;
+        col[ci + 1] = cLo;
+        col[ci + 2] = cHi;
+      } else {
+        if (cLo < col[ci + 1]) col[ci + 1] = cLo;
+        if (cHi > col[ci + 2]) col[ci + 2] = cHi;
+      }
+      // Szudzik pairing, which handles negatives. `a` and `a * a + a` depend only
+      // on cx, so both are hoisted out of the cy loop. Cell-index magnitude must
+      // stay below ~sqrt(2^53) (~9.4e7) for `a * a` to remain an exact integer;
+      // beyond that distinct cells collide.
+      const a = cx >= 0 ? 2 * cx : -2 * cx - 1;
+      const aa = a * a + a;
       for (let cy = minCY; cy <= maxCY; cy++) {
-        const key = this.hashKey(cx, cy);
-        let cell = this.cells.get(key);
-        if (!cell) {
-          cell = [];
-          this.cells.set(key, cell);
+        const b = cy >= 0 ? 2 * cy : -2 * cy - 1;
+        const key = a >= b ? aa + b : b * b + a;
+        let cell = cells.get(key);
+        if (cell === undefined) {
+          cell = { e: [], n: 0, g: fg };
+          cells.set(key, cell);
+        } else if (cell.g !== fg) {
+          cell.g = fg;
+          cell.n = 0;
         }
-        cell.push(entity);
+        const n = cell.n;
+        const items = cell.e;
+        if (n < items.length) items[n] = entity;
+        else items.push(entity);
+        cell.n = n + 1;
       }
     }
   }
@@ -99,21 +188,39 @@ export class SpatialHash {
   query(x: number, y: number, radius: number, results: Entity[]): void {
     results.length = 0;
     const queryGen = this.nextGen();
+    const cells = this.cells;
+    const seen = this.seen;
+    const inv = this.invCellSize;
 
-    const minCX = Math.floor((x - radius) * this.invCellSize);
-    const maxCX = Math.floor((x + radius) * this.invCellSize);
-    const minCY = Math.floor((y - radius) * this.invCellSize);
-    const maxCY = Math.floor((y + radius) * this.invCellSize);
+    let minCX = Math.floor((x - radius) * inv);
+    let maxCX = Math.floor((x + radius) * inv);
+    let minCY = Math.floor((y - radius) * inv);
+    let maxCY = Math.floor((y + radius) * inv);
+    if (minCX < this.occMinCX) minCX = this.occMinCX;
+    if (maxCX > this.occMaxCX) maxCX = this.occMaxCX;
+    if (minCY < this.occMinCY) minCY = this.occMinCY;
+    if (maxCY > this.occMaxCY) maxCY = this.occMaxCY;
 
+    const col = this.col;
+    const fg = this.frameGen;
     for (let cx = minCX; cx <= maxCX; cx++) {
-      for (let cy = minCY; cy <= maxCY; cy++) {
-        const key = this.hashKey(cx, cy);
-        const cell = this.cells.get(key);
-        if (!cell) continue;
-        for (let i = 0; i < cell.length; i++) {
-          const entity = cell[i];
-          if (this.seen[entity as number] !== queryGen) {
-            this.seen[entity as number] = queryGen;
+      const ci = (cx & COL_MASK) * 3;
+      if (col[ci] !== fg) continue;
+      let cyLo = minCY;
+      let cyHi = maxCY;
+      if (cyLo < col[ci + 1]) cyLo = col[ci + 1];
+      if (cyHi > col[ci + 2]) cyHi = col[ci + 2];
+      const a = cx >= 0 ? 2 * cx : -2 * cx - 1;
+      const aa = a * a + a;
+      for (let cy = cyLo; cy <= cyHi; cy++) {
+        const b = cy >= 0 ? 2 * cy : -2 * cy - 1;
+        const cell = cells.get(a >= b ? aa + b : b * b + a);
+        if (cell === undefined || cell.g !== fg) continue;
+        const items = cell.e;
+        for (let i = 0, n = cell.n; i < n; i++) {
+          const entity = items[i];
+          if (seen[entity as number] !== queryGen) {
+            seen[entity as number] = queryGen;
             results.push(entity);
           }
         }
@@ -121,7 +228,8 @@ export class SpatialHash {
     }
   }
 
-  /** Query + circle-circle narrow phase in one pass. */
+  /** Query + circle-circle narrow phase in one pass. `getPos` and `getRadius` are
+   *  called once per candidate and must not mutate the hash. */
   queryRadius(
     x: number,
     y: number,
@@ -132,20 +240,39 @@ export class SpatialHash {
   ): void {
     results.length = 0;
     const queryGen = this.nextGen();
-    const minCX = Math.floor((x - radius) * this.invCellSize);
-    const maxCX = Math.floor((x + radius) * this.invCellSize);
-    const minCY = Math.floor((y - radius) * this.invCellSize);
-    const maxCY = Math.floor((y + radius) * this.invCellSize);
+    const cells = this.cells;
+    const seen = this.seen;
+    const inv = this.invCellSize;
 
+    let minCX = Math.floor((x - radius) * inv);
+    let maxCX = Math.floor((x + radius) * inv);
+    let minCY = Math.floor((y - radius) * inv);
+    let maxCY = Math.floor((y + radius) * inv);
+    if (minCX < this.occMinCX) minCX = this.occMinCX;
+    if (maxCX > this.occMaxCX) maxCX = this.occMaxCX;
+    if (minCY < this.occMinCY) minCY = this.occMinCY;
+    if (maxCY > this.occMaxCY) maxCY = this.occMaxCY;
+
+    const col = this.col;
+    const fg = this.frameGen;
     for (let cx = minCX; cx <= maxCX; cx++) {
-      for (let cy = minCY; cy <= maxCY; cy++) {
-        const key = this.hashKey(cx, cy);
-        const cell = this.cells.get(key);
-        if (!cell) continue;
-        for (let i = 0; i < cell.length; i++) {
-          const entity = cell[i];
-          if (this.seen[entity as number] === queryGen) continue;
-          this.seen[entity as number] = queryGen;
+      const ci = (cx & COL_MASK) * 3;
+      if (col[ci] !== fg) continue;
+      let cyLo = minCY;
+      let cyHi = maxCY;
+      if (cyLo < col[ci + 1]) cyLo = col[ci + 1];
+      if (cyHi > col[ci + 2]) cyHi = col[ci + 2];
+      const a = cx >= 0 ? 2 * cx : -2 * cx - 1;
+      const aa = a * a + a;
+      for (let cy = cyLo; cy <= cyHi; cy++) {
+        const b = cy >= 0 ? 2 * cy : -2 * cy - 1;
+        const cell = cells.get(a >= b ? aa + b : b * b + a);
+        if (cell === undefined || cell.g !== fg) continue;
+        const items = cell.e;
+        for (let i = 0, n = cell.n; i < n; i++) {
+          const entity = items[i];
+          if (seen[entity as number] === queryGen) continue;
+          seen[entity as number] = queryGen;
 
           const pos = getPos(entity);
           if (!pos) continue;
@@ -160,14 +287,5 @@ export class SpatialHash {
         }
       }
     }
-  }
-
-  private hashKey(cx: number, cy: number): number {
-    // Szudzik pairing, handles negatives. Cell-index magnitude must stay below
-    // ~sqrt(2^53) (~9.4e7) for `a * a` to remain an exact integer; beyond that
-    // distinct cells can collide.
-    const a = cx >= 0 ? 2 * cx : -2 * cx - 1;
-    const b = cy >= 0 ? 2 * cy : -2 * cy - 1;
-    return a >= b ? a * a + a + b : b * b + a;
   }
 }

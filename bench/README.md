@@ -33,6 +33,8 @@ Files:
 - **`serialize.bench.ts`**: full snapshots, restores, deltas, and JSON vs binary
   codecs.
 - **`spatial-dedup.bench.ts`**: spatial hash query deduplication strategies.
+- **`spatial-hash.bench.ts`**: a whole broadphase frame (clear, re-insert, wide
+  query, narrow-phase burst) against the eager per-frame reset it replaced.
 - **`storage.bench.ts`**: sparse-set `ComponentStore` compared with
   `Map<Entity, T>` storage.
 - **`store-indexing.bench.ts`**: component store lookup through maps compared
