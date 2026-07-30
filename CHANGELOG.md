@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.5
+
+- No source changes. Toolchain/deps only: Biome 2.5.6, Vite 8.1.5, Vitest
+  4.1.10, Playwright 1.62.0, pnpm 11.18.0, Node engines floor 24.18.1. The
+  Biome config schema pin now tracks the installed version.
+
 ## 0.1.4
 
 - `SpatialHash`: `clear()` is now O(1). Buckets carry a frame stamp and a live
