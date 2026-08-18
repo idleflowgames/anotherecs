@@ -27,6 +27,17 @@ export interface SerializerOptions {
    * registered), so "no migrations" is represented in the format.
    */
   readonly migrations?: MigrationRegistry;
+  /**
+   * Optional row-emission order for `snapshot()`. Must return a permutation of
+   * the alive union (validated; throws otherwise). `restore()` spawns and adds
+   * strictly in row order, so a consumer whose iteration semantics depend on a
+   * store's dense (swap-delete) order can PRESERVE that order across a
+   * round-trip by emitting the store's entities in dense order: the restored
+   * store's dense array is the row order restricted to its members. Omitted =>
+   * canonical ascending index order (the delta paths always use ascending
+   * order regardless).
+   */
+  readonly entityOrder?: (world: World) => readonly Entity[];
 }
 
 /**
@@ -197,10 +208,14 @@ export class Serializer {
   // means every component is implicitly version 0 with an identity upgrade.
   private readonly migrations?: MigrationRegistry;
 
+  // Optional consumer-owned snapshot row order (see SerializerOptions).
+  private readonly entityOrder?: (world: World) => readonly Entity[];
+
   constructor(options?: SerializerOptions) {
     this.maxComponentBytes =
       options?.maxComponentBytes ?? DEFAULT_MAX_COMPONENT_BYTES;
     this.migrations = options?.migrations;
+    this.entityOrder = options?.entityOrder;
   }
 
   // Current (live-code) version written for a component blob. When no migrations
@@ -285,7 +300,8 @@ export class Serializer {
   }
   /**
    * Full world state as a self-describing buffer. Entities are emitted in
-   * ascending index order; per entity, components are emitted in ascending
+   * ascending index order, or the consumer's `entityOrder` permutation when
+   * supplied; per entity, components are emitted in ascending
    * ComponentType.id order. Little-endian throughout.
    */
   snapshot(world: World): ArrayBuffer {
@@ -294,7 +310,7 @@ export class Serializer {
     w.u32(FORMAT_SNAPSHOT);
     w.u32(FORMAT_VERSION);
 
-    const entities = this.aliveSorted(world);
+    const entities = this.snapshotOrder(world);
     w.u32(entities.length);
 
     for (let i = 0; i < entities.length; i++) {
@@ -318,6 +334,30 @@ export class Serializer {
     this.writeResources(world, w);
     this.captureBaseline(world, entities);
     return w.finish();
+  }
+
+  // snapshot()'s row-emission order: the consumer's entityOrder when supplied
+  // (validated as a permutation of the alive union), else ascending index.
+  private snapshotOrder(world: World): number[] {
+    const sorted = this.aliveSorted(world);
+    const custom = this.entityOrder?.(world);
+    if (custom === undefined) return sorted;
+    if (custom.length !== sorted.length) {
+      throw new Error(
+        `entityOrder returned ${custom.length} entities; ${sorted.length} are alive`,
+      );
+    }
+    const seen = new Set<number>();
+    for (let i = 0; i < custom.length; i++) seen.add(custom[i] as number);
+    if (seen.size !== custom.length) {
+      throw new Error("entityOrder returned duplicate entities");
+    }
+    for (let i = 0; i < sorted.length; i++) {
+      if (!seen.has(sorted[i])) {
+        throw new Error(`entityOrder omitted alive entity ${sorted[i]}`);
+      }
+    }
+    return [...custom] as number[];
   }
 
   // Union of every registered store's members, as a sorted ascending array.
