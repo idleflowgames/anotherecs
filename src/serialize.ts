@@ -7,7 +7,10 @@
 // canonical by iterating entities in ASCENDING INDEX order (explicitly not the
 // store's swap-delete order) and ordering each entity's components by ascending
 // ComponentType.id. Two worlds with identical logical content but different
-// operation histories produce byte-identical snapshots. Numeric encoding is
+// operation histories produce byte-identical snapshots. A consumer-supplied
+// `entityOrder` (SerializerOptions) deliberately trades that cross-history
+// canonicality for dense-order PRESERVATION through restore; the delta paths
+// stay canonical regardless. Numeric encoding is
 // little-endian via explicit DataView calls; the delta byte-compare is exact
 // (===), never a tolerance. Zero runtime deps: DataView, typed arrays, and
 // TextEncoder only.
