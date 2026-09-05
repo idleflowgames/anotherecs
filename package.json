@@ -69,11 +69,11 @@
     "verify:release": "pnpm check:package && pnpm typecheck && pnpm test:package && pnpm pack:check"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.8",
-    "pixi.js": "^8.19.0",
-    "playwright": "^1.62.1",
+    "@biomejs/biome": "2.5.12",
+    "pixi.js": "^8.20.1",
+    "playwright": "^1.63.0",
     "typescript": "^7.0.2",
-    "vite": "^8.2.1",
-    "vitest": "^4.1.10"
+    "vite": "^8.2.2",
+    "vitest": "^4.1.11"
   }
 }
