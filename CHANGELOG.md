@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.7
 
 - Update development dependencies and pnpm 12; migrate benchmarks to Vitest 5
   test-context fixtures and grouped comparisons.
