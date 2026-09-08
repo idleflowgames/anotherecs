@@ -8,6 +8,10 @@ pnpm bench
 pnpm exec vitest bench --run path/to/file.bench.ts
 ```
 
+Vitest 5 runs each scenario inside an async test with the `bench` fixture.
+Related implementations use `bench.compare()` so the reporter keeps their
+throughput comparison together. Benchmarks remain separate from `pnpm test`.
+
 Files:
 
 - **`change-tracking.bench.ts`**: tracked vs untracked component deltas,

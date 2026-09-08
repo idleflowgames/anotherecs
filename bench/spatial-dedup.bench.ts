@@ -1,4 +1,4 @@
-import { bench, describe } from "vitest";
+import { test } from "vitest";
 import { type Entity, SpatialHash } from "../src/index";
 
 // SpatialHash's Int32Array dedup compared with a Map<Entity, number> baseline.
@@ -69,15 +69,17 @@ function scenario(name: string, numEntities: number, maxEnt: number) {
     old.insert(i as Entity, x, y, 8);
   }
   const out: Entity[] = [];
-  describe(name, () => {
-    bench("SpatialHash (Map dedup baseline)", () => {
-      for (let i = 0; i < numEntities; i++)
-        old.query(pos[i].x, pos[i].y, 40, out);
-    });
-    bench("SpatialHash (Int32Array dedup, current)", () => {
-      for (let i = 0; i < numEntities; i++)
-        real.query(pos[i].x, pos[i].y, 40, out);
-    });
+  test(name, async ({ bench }) => {
+    await bench.compare(
+      bench("SpatialHash (Map dedup baseline)", () => {
+        for (let i = 0; i < numEntities; i++)
+          old.query(pos[i].x, pos[i].y, 40, out);
+      }),
+      bench("SpatialHash (Int32Array dedup, current)", () => {
+        for (let i = 0; i < numEntities; i++)
+          real.query(pos[i].x, pos[i].y, 40, out);
+      }),
+    );
   });
 }
 

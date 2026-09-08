@@ -110,6 +110,34 @@ describe("SerializerOptions.entityOrder", () => {
     ]);
   });
 
+  it("keeps deltas canonical after a custom-order snapshot baseline", () => {
+    const world = scrambledWorld();
+    const entities = [...world.getStoreRaw(CMarker).iterEntities()] as Entity[];
+    const canonical = new Serializer()
+      .register(CMarker, markerCodec)
+      .register(CExtra, extraCodec);
+    let orderCalls = 0;
+    const custom = new Serializer({
+      entityOrder: (source) => {
+        orderCalls++;
+        return [...source.getStoreRaw(CMarker).iterEntities()] as Entity[];
+      },
+    })
+      .register(CMarker, markerCodec)
+      .register(CExtra, extraCodec);
+    canonical.snapshot(world);
+    custom.snapshot(world);
+    world.add(entities[0], CMarker, { n: 99 });
+    world.add(world.spawn(), CMarker, { n: 100 });
+    world.despawn(entities[entities.length - 1]);
+    world.flush();
+
+    expect(new Uint8Array(custom.delta(world))).toEqual(
+      new Uint8Array(canonical.delta(world)),
+    );
+    expect(orderCalls).toBe(1);
+  });
+
   it("rejects a non-permutation: short, duplicated, or foreign", () => {
     const world = scrambledWorld();
     const dense = [...world.getStoreRaw(CMarker).iterEntities()] as Entity[];

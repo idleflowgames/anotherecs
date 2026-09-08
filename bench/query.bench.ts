@@ -1,4 +1,4 @@
-import { bench, describe } from "vitest";
+import { test } from "vitest";
 import {
   type ComponentType,
   defineComponent,
@@ -52,59 +52,67 @@ function invalidate(w: World, e: Entity) {
   w.removeComponent(e, Marker);
 }
 
-describe("query A,B: read-heavy, no structural change", () => {
+test("query A,B: read-heavy, no structural change", async ({ bench }) => {
   const { w, r } = build();
-  bench("world.query (cached, allocation-stable)", () => {
-    let s = 0;
-    for (const [, a, b] of w.query(CA, CB)) s += a.x + b.y;
-    if (s < 0) throw new Error("unreachable");
-  });
-  bench("ReferenceWorld.queryTuples (rebuild tuples each call)", () => {
-    let s = 0;
-    for (const t of r.queryTuples(CA, CB)) {
-      s += (t[1] as { x: number }).x + (t[2] as { y: number }).y;
-    }
-    if (s < 0) throw new Error("unreachable");
-  });
+  await bench.compare(
+    bench("world.query (cached, allocation-stable)", () => {
+      let s = 0;
+      for (const [, a, b] of w.query(CA, CB)) s += a.x + b.y;
+      if (s < 0) throw new Error("unreachable");
+    }),
+    bench("ReferenceWorld.queryTuples (rebuild tuples each call)", () => {
+      let s = 0;
+      for (const t of r.queryTuples(CA, CB)) {
+        s += (t[1] as { x: number }).x + (t[2] as { y: number }).y;
+      }
+      if (s < 0) throw new Error("unreachable");
+    }),
+  );
 });
 
-describe("iterate A,B: per-frame invalidation (each vs query tuple churn)", () => {
+test("iterate A,B: per-frame invalidation (each vs query tuple churn)", async ({
+  bench,
+}) => {
   const { w, sample } = build();
-  bench("world.each (no per-call tuples)", () => {
-    invalidate(w, sample);
-    let s = 0;
-    w.each(CA, CB, (_e, a, b) => {
-      s += a.x + b.y;
-    });
-    if (s < 0) throw new Error("unreachable");
-  });
-  bench("world.query then iterate (rebuilds tuples)", () => {
-    invalidate(w, sample);
-    let s = 0;
-    for (const [, a, b] of w.query(CA, CB)) s += a.x + b.y;
-    if (s < 0) throw new Error("unreachable");
-  });
+  await bench.compare(
+    bench("world.each (no per-call tuples)", () => {
+      invalidate(w, sample);
+      let s = 0;
+      w.each(CA, CB, (_e, a, b) => {
+        s += a.x + b.y;
+      });
+      if (s < 0) throw new Error("unreachable");
+    }),
+    bench("world.query then iterate (rebuilds tuples)", () => {
+      invalidate(w, sample);
+      let s = 0;
+      for (const [, a, b] of w.query(CA, CB)) s += a.x + b.y;
+      if (s < 0) throw new Error("unreachable");
+    }),
+  );
 });
 
-describe("iterate A,B: compiled handle vs entry point", () => {
+test("iterate A,B: compiled handle vs entry point", async ({ bench }) => {
   const { w, sample } = build();
   const q = w.compileQuery(CA, CB);
-  bench("compileQuery().each (no per-call key/slice)", () => {
-    invalidate(w, sample);
-    let s = 0;
-    q.each((_e, a, b) => {
-      s += a.x + b.y;
-    });
-    if (s < 0) throw new Error("unreachable");
-  });
-  bench("world.each (per-call key + args.slice)", () => {
-    invalidate(w, sample);
-    let s = 0;
-    w.each(CA, CB, (_e, a, b) => {
-      s += a.x + b.y;
-    });
-    if (s < 0) throw new Error("unreachable");
-  });
+  await bench.compare(
+    bench("compileQuery().each (no per-call key/slice)", () => {
+      invalidate(w, sample);
+      let s = 0;
+      q.each((_e, a, b) => {
+        s += a.x + b.y;
+      });
+      if (s < 0) throw new Error("unreachable");
+    }),
+    bench("world.each (per-call key + args.slice)", () => {
+      invalidate(w, sample);
+      let s = 0;
+      w.each(CA, CB, (_e, a, b) => {
+        s += a.x + b.y;
+      });
+      if (s < 0) throw new Error("unreachable");
+    }),
+  );
 });
 
 const MN = 5000;
@@ -129,36 +137,41 @@ function buildBitmaskWorld() {
   return { w, ents };
 }
 
-describe("bitmask hasMask vs world.has (single-word read)", () => {
+test("bitmask hasMask vs world.has (single-word read)", async ({ bench }) => {
   const { w, ents } = buildBitmaskWorld();
-  bench("world.hasMask (single-word read)", () => {
-    let n = 0;
-    for (let i = 0; i < ents.length; i++) if (w.hasMask(ents[i], BmA)) n++;
-    if (n < 0) throw new Error("unreachable");
-  });
-  bench("world.has (sparse lookup)", () => {
-    let n = 0;
-    for (let i = 0; i < ents.length; i++) if (w.has(ents[i], BmA)) n++;
-    if (n < 0) throw new Error("unreachable");
-  });
+  await bench.compare(
+    bench("world.hasMask (single-word read)", () => {
+      let n = 0;
+      for (let i = 0; i < ents.length; i++) if (w.hasMask(ents[i], BmA)) n++;
+      if (n < 0) throw new Error("unreachable");
+    }),
+    bench("world.has (sparse lookup)", () => {
+      let n = 0;
+      for (let i = 0; i < ents.length; i++) if (w.has(ents[i], BmA)) n++;
+      if (n < 0) throw new Error("unreachable");
+    }),
+  );
 });
 
-describe("bitmask hasAllMask vs three sparse has() lookups", () => {
+test("bitmask hasAllMask vs three sparse has() lookups", async ({ bench }) => {
   const { w, ents } = buildBitmaskWorld();
   const conj = [BmA, BmB, BmC] as ComponentType<unknown>[];
-  bench("world.hasAllMask (cached signature AND)", () => {
-    let n = 0;
-    for (let i = 0; i < ents.length; i++) if (w.hasAllMask(ents[i], conj)) n++;
-    if (n < 0) throw new Error("unreachable");
-  });
-  bench("world.has x3 (three sparse lookups)", () => {
-    let n = 0;
-    for (let i = 0; i < ents.length; i++) {
-      const e = ents[i];
-      if (w.has(e, BmA) && w.has(e, BmB) && w.has(e, BmC)) n++;
-    }
-    if (n < 0) throw new Error("unreachable");
-  });
+  await bench.compare(
+    bench("world.hasAllMask (cached signature AND)", () => {
+      let n = 0;
+      for (let i = 0; i < ents.length; i++)
+        if (w.hasAllMask(ents[i], conj)) n++;
+      if (n < 0) throw new Error("unreachable");
+    }),
+    bench("world.has x3 (three sparse lookups)", () => {
+      let n = 0;
+      for (let i = 0; i < ents.length; i++) {
+        const e = ents[i];
+        if (w.has(e, BmA) && w.has(e, BmB) && w.has(e, BmC)) n++;
+      }
+      if (n < 0) throw new Error("unreachable");
+    }),
+  );
 });
 
 const ChurnTag = defineTag("BmChurnTag");
@@ -168,29 +181,35 @@ const ChurnMarker = defineComponent(
   () => {},
 );
 
-describe("tag add/remove churn (zero-alloc) vs empty-object component", () => {
+test("tag add/remove churn (zero-alloc) vs empty-object component", async ({
+  bench,
+}) => {
   const { w, ents } = (() => {
     const world = new World();
     const arr: Entity[] = [];
     for (let i = 0; i < MN; i++) arr.push(world.spawn());
     return { w: world, ents: arr };
   })();
-  bench("addTag/removeTag cycle (no allocation)", () => {
-    for (let i = 0; i < ents.length; i++) {
-      w.addTag(ents[i], ChurnTag);
-      w.removeTag(ents[i], ChurnTag);
-    }
-  });
-  bench("addComponent/removeComponent empty-object idiom", () => {
-    for (let i = 0; i < ents.length; i++) {
-      w.addComponent(ents[i], ChurnMarker);
-      w.removeComponent(ents[i], ChurnMarker);
-    }
-  });
+  await bench.compare(
+    bench("addTag/removeTag cycle (no allocation)", () => {
+      for (let i = 0; i < ents.length; i++) {
+        w.addTag(ents[i], ChurnTag);
+        w.removeTag(ents[i], ChurnTag);
+      }
+    }),
+    bench("addComponent/removeComponent empty-object idiom", () => {
+      for (let i = 0; i < ents.length; i++) {
+        w.addComponent(ents[i], ChurnMarker);
+        w.removeComponent(ents[i], ChurnMarker);
+      }
+    }),
+  );
 });
 const PvA = defineComponent<{ v: number }>("PvBenchA");
 const PvB = defineComponent<{ v: number }>("PvBenchB");
-describe("per-store versioning: unrelated mutation is a cache hit", () => {
+test("per-store versioning: unrelated mutation is a cache hit", async ({
+  bench,
+}) => {
   const { w, qA, ents } = (() => {
     const world = new World();
     const arr: Entity[] = [];
@@ -203,31 +222,33 @@ describe("per-store versioning: unrelated mutation is a cache hit", () => {
     return { w: world, qA: world.compileQuery(PvA), ents: arr };
   })();
   let k = 0;
-  bench("iterate A; churn unrelated B each call (no rebuild)", () => {
-    const e = ents[k++ % ents.length];
-    w.remove(e, PvB);
-    w.add(e, PvB, { v: k });
-    let s = 0;
-    qA.each((_e, a) => {
-      s += a.v;
-    });
-    if (s < 0) throw new Error("unreachable");
-  });
-  bench("iterate A; churn A itself each call (rebuilds every call)", () => {
-    const e = ents[k++ % ents.length];
-    w.remove(e, PvA);
-    w.add(e, PvA, { v: k });
-    let s = 0;
-    qA.each((_e, a) => {
-      s += a.v;
-    });
-    if (s < 0) throw new Error("unreachable");
-  });
+  await bench.compare(
+    bench("iterate A; churn unrelated B each call (no rebuild)", () => {
+      const e = ents[k++ % ents.length];
+      w.remove(e, PvB);
+      w.add(e, PvB, { v: k });
+      let s = 0;
+      qA.each((_e, a) => {
+        s += a.v;
+      });
+      if (s < 0) throw new Error("unreachable");
+    }),
+    bench("iterate A; churn A itself each call (rebuilds every call)", () => {
+      const e = ents[k++ % ents.length];
+      w.remove(e, PvA);
+      w.add(e, PvA, { v: k });
+      let s = 0;
+      qA.each((_e, a) => {
+        s += a.v;
+      });
+      if (s < 0) throw new Error("unreachable");
+    }),
+  );
 });
 const Bm5 = Array.from({ length: 5 }, (_, i) =>
   defineComponent<{ v: number }>(`Bm5_${i}`),
 );
-describe("bitmask-accelerated rebuild (5-component join)", () => {
+test("bitmask-accelerated rebuild (5-component join)", async ({ bench }) => {
   const makeWorld = (mask: boolean) => {
     const world = new World();
     if (mask) world.enableBitmask();
@@ -242,16 +263,18 @@ describe("bitmask-accelerated rebuild (5-component join)", () => {
   const off = makeWorld(false);
   const on = makeWorld(true);
   let k = 0;
-  bench("rebuild via has()-loop (bitmask OFF)", () => {
-    const e = off.ents[k++ % off.ents.length];
-    off.world.remove(e, Bm5[0]);
-    off.world.add(e, Bm5[0], { v: k });
-    if (off.q.count() < 0) throw new Error("unreachable");
-  });
-  bench("rebuild via signature AND (bitmask ON)", () => {
-    const e = on.ents[k++ % on.ents.length];
-    on.world.remove(e, Bm5[0]);
-    on.world.add(e, Bm5[0], { v: k });
-    if (on.q.count() < 0) throw new Error("unreachable");
-  });
+  await bench.compare(
+    bench("rebuild via has()-loop (bitmask OFF)", () => {
+      const e = off.ents[k++ % off.ents.length];
+      off.world.remove(e, Bm5[0]);
+      off.world.add(e, Bm5[0], { v: k });
+      if (off.q.count() < 0) throw new Error("unreachable");
+    }),
+    bench("rebuild via signature AND (bitmask ON)", () => {
+      const e = on.ents[k++ % on.ents.length];
+      on.world.remove(e, Bm5[0]);
+      on.world.add(e, Bm5[0], { v: k });
+      if (on.q.count() < 0) throw new Error("unreachable");
+    }),
+  );
 });

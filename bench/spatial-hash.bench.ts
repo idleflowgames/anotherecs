@@ -1,4 +1,4 @@
-import { bench, describe } from "vitest";
+import { test } from "vitest";
 import { type Entity, SpatialHash } from "../src/index";
 
 // SpatialHash against the pre-occupancy implementation it replaced, over a whole
@@ -175,15 +175,17 @@ function frames(hash: Broadphase, count: number, wideRadius: number): number {
 }
 
 function scenario(name: string, count: number, maxEntities: number): void {
-  describe(name, () => {
+  test(name, async ({ bench }) => {
     const eager = new SpatialHashEager(CELL, maxEntities);
     const current = new SpatialHash(CELL, maxEntities);
-    bench("eager per-frame reset (previous)", () => {
-      frames(eager, count, 340);
-    });
-    bench("occupancy-accelerated (current)", () => {
-      frames(current, count, 340);
-    });
+    await bench.compare(
+      bench("eager per-frame reset (previous)", () => {
+        frames(eager, count, 340);
+      }),
+      bench("occupancy-accelerated (current)", () => {
+        frames(current, count, 340);
+      }),
+    );
   });
 }
 

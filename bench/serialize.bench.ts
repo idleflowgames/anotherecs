@@ -1,4 +1,4 @@
-import { bench, describe } from "vitest";
+import { test } from "vitest";
 import {
   type ComponentCodec,
   defineComponent,
@@ -48,26 +48,26 @@ function binarySerializer(): Serializer {
   return new Serializer().register(CPosition, positionCodec);
 }
 
-describe("serialize: full-world snapshot", () => {
+test("serialize: full-world snapshot", async ({ bench }) => {
   const world = buildWorld();
   const ser = binarySerializer();
-  bench("snapshot 5000 entities (binary Position codec)", () => {
+  await bench("snapshot 5000 entities (binary Position codec)", () => {
     ser.snapshot(world);
-  });
+  }).run();
 });
 
-describe("serialize: full-world restore", () => {
+test("serialize: full-world restore", async ({ bench }) => {
   const world = buildWorld();
   const ser = binarySerializer();
   const buf = ser.snapshot(world);
-  bench("restore 5000 entities (decode + re-spawn + idMap build)", () => {
+  await bench("restore 5000 entities (decode + re-spawn + idMap build)", () => {
     const dest = new World();
     binarySerializer().restore(dest, buf);
-  });
+  }).run();
 });
 
-describe("serialize: delta (10% churn)", () => {
-  bench("delta after 500 changed + 50 spawned + 50 despawned", () => {
+test("serialize: delta (10% churn)", async ({ bench }) => {
+  await bench("delta after 500 changed + 50 spawned + 50 despawned", () => {
     const world = buildWorld();
     const ser = binarySerializer();
     const ids: Entity[] = world.query(CPosition).map(([e]) => e);
@@ -79,36 +79,40 @@ describe("serialize: delta (10% churn)", () => {
     for (let i = 0; i < 50; i++) world.despawn(ids[N - 1 - i]);
     world.flush();
     ser.delta(world);
-  });
+  }).run();
 });
 
-describe("serialize: delta vs full snapshot at 1% churn", () => {
-  bench("delta (1% changed)", () => {
-    const world = buildWorld();
-    const ser = binarySerializer();
-    const ids: Entity[] = world.query(CPosition).map(([e]) => e);
-    ser.snapshot(world);
-    for (let i = 0; i < 50; i++) world.add(ids[i], CPosition, { x: i, y: i });
-    ser.delta(world);
-  });
-
-  bench("full snapshot (for comparison)", () => {
-    const world = buildWorld();
-    const ser = binarySerializer();
-    ser.snapshot(world);
-    const ids: Entity[] = world.query(CPosition).map(([e]) => e);
-    for (let i = 0; i < 50; i++) world.add(ids[i], CPosition, { x: i, y: i });
-    ser.snapshot(world);
-  });
+test("serialize: delta vs full snapshot at 1% churn", async ({ bench }) => {
+  await bench.compare(
+    bench("delta (1% changed)", () => {
+      const world = buildWorld();
+      const ser = binarySerializer();
+      const ids: Entity[] = world.query(CPosition).map(([e]) => e);
+      ser.snapshot(world);
+      for (let i = 0; i < 50; i++) world.add(ids[i], CPosition, { x: i, y: i });
+      ser.delta(world);
+    }),
+    bench("full snapshot (for comparison)", () => {
+      const world = buildWorld();
+      const ser = binarySerializer();
+      ser.snapshot(world);
+      const ids: Entity[] = world.query(CPosition).map(([e]) => e);
+      for (let i = 0; i < 50; i++) world.add(ids[i], CPosition, { x: i, y: i });
+      ser.snapshot(world);
+    }),
+  );
 });
 
-describe("serialize: jsonCodec vs binary codec", () => {
+test("serialize: jsonCodec vs binary codec", async ({ bench }) => {
   const world = buildWorld();
-  bench("snapshot 5000 entities (jsonCodec)", () => {
-    new Serializer().register(CPosition, jsonCodec<Position>()).snapshot(world);
-  });
-
-  bench("snapshot 5000 entities (binary codec)", () => {
-    binarySerializer().snapshot(world);
-  });
+  await bench.compare(
+    bench("snapshot 5000 entities (jsonCodec)", () => {
+      new Serializer()
+        .register(CPosition, jsonCodec<Position>())
+        .snapshot(world);
+    }),
+    bench("snapshot 5000 entities (binary codec)", () => {
+      binarySerializer().snapshot(world);
+    }),
+  );
 });

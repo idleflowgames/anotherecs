@@ -1,4 +1,4 @@
-import { bench, describe } from "vitest";
+import { test } from "vitest";
 import { defineComponent, type Entity, World } from "../src/index";
 
 // Spawn/add/despawn churn: a high-component-turnover pattern
@@ -35,7 +35,11 @@ function churn(pooling: boolean): void {
   }
 }
 
-describe("spawn/add/despawn churn (component-object GC pressure)", () => {
-  bench("pooling OFF (fresh object per addComponent)", () => churn(false));
-  bench("pooling ON (reused, reset objects)", () => churn(true));
+test("spawn/add/despawn churn (component-object GC pressure)", async ({
+  bench,
+}) => {
+  await bench.compare(
+    bench("pooling OFF (fresh object per addComponent)", () => churn(false)),
+    bench("pooling ON (reused, reset objects)", () => churn(true)),
+  );
 });

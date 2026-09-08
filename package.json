@@ -44,10 +44,10 @@
     "access": "public",
     "registry": "https://registry.npmjs.org/"
   },
-  "packageManager": "pnpm@11.22.0",
+  "packageManager": "pnpm@12.3.4",
   "engines": {
     "node": ">=24.18.1",
-    "pnpm": ">=11.22.0"
+    "pnpm": ">=12.3.4"
   },
   "scripts": {
     "build": "vite build && tsc -p tsconfig.build.json",
@@ -61,7 +61,7 @@
     "demo": "vite --host 127.0.0.1 --config examples/pixi-demo/vite.config.ts",
     "demo:build": "vite build --config examples/pixi-demo/vite.config.ts",
     "demo:screenshots": "node scripts/capture-demo-screenshots.mjs",
-    "demo:test": "vitest --config examples/pixi-demo/vite.config.ts run examples/pixi-demo/src/**/*.test.ts",
+    "demo:test": "vitest --config examples/pixi-demo/vite.config.ts run",
     "demo:typecheck": "tsc -p examples/pixi-demo/tsconfig.json --noEmit",
     "check": "biome check .",
     "check:package": "biome check src test bench package.json tsconfig.json tsconfig.build.json vite.config.ts README.md CHANGELOG.md",
@@ -69,11 +69,11 @@
     "verify:release": "pnpm check:package && pnpm typecheck && pnpm test:package && pnpm pack:check"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.8",
-    "pixi.js": "^8.19.0",
-    "playwright": "^1.62.1",
+    "@biomejs/biome": "2.5.12",
+    "pixi.js": "^8.20.1",
+    "playwright": "^1.63.0",
     "typescript": "^7.0.2",
-    "vite": "^8.2.1",
-    "vitest": "^4.1.10"
+    "vite": "^8.2.2",
+    "vitest": "^5.0.0"
   }
 }

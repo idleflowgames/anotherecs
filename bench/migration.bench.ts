@@ -1,4 +1,4 @@
-import { bench, describe } from "vitest";
+import { test } from "vitest";
 import {
   type ComponentCodec,
   defineComponent,
@@ -27,25 +27,27 @@ function threeStepRegistry(): MigrationRegistry {
   return reg;
 }
 
-describe("migration: migrate identity (storedVersion === current)", () => {
+test("migration: migrate identity (storedVersion === current)", async ({
+  bench,
+}) => {
   const reg = threeStepRegistry();
-  bench(
+  await bench(
     "migrate at current version over N values (fast-path early return)",
     () => {
       for (let i = 0; i < N; i++) {
         reg.migrate(CMigrate.id, 3, { a: i });
       }
     },
-  );
+  ).run();
 });
 
-describe("migration: migrate full chain (v0 -> v3, 3 steps)", () => {
+test("migration: migrate full chain (v0 -> v3, 3 steps)", async ({ bench }) => {
   const reg = threeStepRegistry();
-  bench("migrate v0 over N values (apply 3 steps each)", () => {
+  await bench("migrate v0 over N values (apply 3 steps each)", () => {
     for (let i = 0; i < N; i++) {
       reg.migrate(CMigrate.id, 0, { a: i });
     }
-  });
+  }).run();
 });
 
 const SCALE = 5000;
@@ -79,21 +81,24 @@ function buildWorld(): World {
   return world;
 }
 
-describe("migration: serializer restore, no migrations vs empty-registry", () => {
+test("migration: serializer restore, no migrations vs empty-registry", async ({
+  bench,
+}) => {
   const world = buildWorld();
   const buf = new Serializer()
     .register(CPosition, positionCodec)
     .snapshot(world);
 
-  bench("restore (no options)", () => {
-    new Serializer()
-      .register(CPosition, positionCodec)
-      .restore(new World(), buf);
-  });
-
-  bench("restore (empty MigrationRegistry)", () => {
-    new Serializer({ migrations: new MigrationRegistry() })
-      .register(CPosition, positionCodec)
-      .restore(new World(), buf);
-  });
+  await bench.compare(
+    bench("restore (no options)", () => {
+      new Serializer()
+        .register(CPosition, positionCodec)
+        .restore(new World(), buf);
+    }),
+    bench("restore (empty MigrationRegistry)", () => {
+      new Serializer({ migrations: new MigrationRegistry() })
+        .register(CPosition, positionCodec)
+        .restore(new World(), buf);
+    }),
+  );
 });

@@ -1,4 +1,4 @@
-import { bench, describe } from "vitest";
+import { test } from "vitest";
 import { defineComponent, type Entity, World, without } from "../src/index";
 
 // 5+-component each() falls to the cap-lifted variadic overload, whose callback
@@ -37,59 +37,71 @@ function build() {
   return w;
 }
 
-describe("select(A) vs query(A) parity (shared-cache delegation is free)", () => {
+test("select(A) vs query(A) parity (shared-cache delegation is free)", async ({
+  bench,
+}) => {
   const w = build();
-  bench("world.select(CA).results() (pure-with shared cache)", () => {
-    let s = 0;
-    for (const [, a] of w.select(CA).results()) s += a.x;
-    if (s < 0) throw new Error("unreachable");
-  });
-  bench("world.query(CA) (baseline)", () => {
-    let s = 0;
-    for (const [, a] of w.query(CA)) s += a.x;
-    if (s < 0) throw new Error("unreachable");
-  });
+  await bench.compare(
+    bench("world.select(CA).results() (pure-with shared cache)", () => {
+      let s = 0;
+      for (const [, a] of w.select(CA).results()) s += a.x;
+      if (s < 0) throw new Error("unreachable");
+    }),
+    bench("world.query(CA) (baseline)", () => {
+      let s = 0;
+      for (const [, a] of w.query(CA)) s += a.x;
+      if (s < 0) throw new Error("unreachable");
+    }),
+  );
 });
 
-describe("select(A, without(Dead)) vs manual query(A)+has(Dead) filter", () => {
+test("select(A, without(Dead)) vs manual query(A)+has(Dead) filter", async ({
+  bench,
+}) => {
   const w = build();
   const filtered = w.select(CA, without(CDead));
-  bench(
-    "world.select(CA, without(CDead)).each (engine-level exclusion)",
-    () => {
+  await bench.compare(
+    bench(
+      "world.select(CA, without(CDead)).each (engine-level exclusion)",
+      () => {
+        let s = 0;
+        filtered.each((_e, a) => {
+          s += (a as { x: number }).x;
+        });
+        if (s < 0) throw new Error("unreachable");
+      },
+    ),
+    bench("world.query(CA) + manual has(CDead) skip (hand-rolled)", () => {
       let s = 0;
-      filtered.each((_e, a) => {
-        s += (a as { x: number }).x;
-      });
+      for (const [e, a] of w.query(CA)) {
+        if (w.has(e, CDead)) continue;
+        s += a.x;
+      }
       if (s < 0) throw new Error("unreachable");
-    },
+    }),
   );
-  bench("world.query(CA) + manual has(CDead) skip (hand-rolled)", () => {
-    let s = 0;
-    for (const [e, a] of w.query(CA)) {
-      if (w.has(e, CDead)) continue;
-      s += a.x;
-    }
-    if (s < 0) throw new Error("unreachable");
-  });
 });
 
-describe("each 6 components (generic scratch lane) vs 4 (fast switch)", () => {
+test("each 6 components (generic scratch lane) vs 4 (fast switch)", async ({
+  bench,
+}) => {
   const w = build();
-  bench("world.each(C1..C6) (generic scratch lane, cap lifted)", () => {
-    let s = 0;
-    world6Each(w, (n) => {
-      s += n;
-    });
-    if (s < 0) throw new Error("unreachable");
-  });
-  bench("world.each(C1..C4) (fast switch, <=4)", () => {
-    let s = 0;
-    w.each(C1, C2, C3, C4, (_e, a, b, c, d) => {
-      s += a.n + b.n + c.n + d.n;
-    });
-    if (s < 0) throw new Error("unreachable");
-  });
+  await bench.compare(
+    bench("world.each(C1..C6) (generic scratch lane, cap lifted)", () => {
+      let s = 0;
+      world6Each(w, (n) => {
+        s += n;
+      });
+      if (s < 0) throw new Error("unreachable");
+    }),
+    bench("world.each(C1..C4) (fast switch, <=4)", () => {
+      let s = 0;
+      w.each(C1, C2, C3, C4, (_e, a, b, c, d) => {
+        s += a.n + b.n + c.n + d.n;
+      });
+      if (s < 0) throw new Error("unreachable");
+    }),
+  );
 });
 
 function world6Each(w: World, sink: (n: number) => void) {
@@ -99,7 +111,9 @@ function world6Each(w: World, sink: (n: number) => void) {
   });
 }
 
-describe("pairs() over N matched entities vs nested world.query loop", () => {
+test("pairs() over N matched entities vs nested world.query loop", async ({
+  bench,
+}) => {
   function buildPairs(n: number) {
     const w = new World();
     const ents: Entity[] = [];
@@ -112,22 +126,24 @@ describe("pairs() over N matched entities vs nested world.query loop", () => {
   }
   const { w } = buildPairs(150);
   const q = w.select(CA);
-  bench("compiled select(CA).pairs() (cached entity list)", () => {
-    let s = 0;
-    q.pairs((_a, _b, posA) => {
-      s += posA.x;
-    });
-    if (s < 0) throw new Error("unreachable");
-  });
-  bench("nested world.query(CA) loop (manual i<j broadphase)", () => {
-    let s = 0;
-    const list = w.query(CA);
-    for (let i = 0; i < list.length; i++) {
-      const ai = list[i][1].x;
-      for (let j = i + 1; j < list.length; j++) {
-        s += ai + list[j][1].x;
+  await bench.compare(
+    bench("compiled select(CA).pairs() (cached entity list)", () => {
+      let s = 0;
+      q.pairs((_a, _b, posA) => {
+        s += posA.x;
+      });
+      if (s < 0) throw new Error("unreachable");
+    }),
+    bench("nested world.query(CA) loop (manual i<j broadphase)", () => {
+      let s = 0;
+      const list = w.query(CA);
+      for (let i = 0; i < list.length; i++) {
+        const ai = list[i][1].x;
+        for (let j = i + 1; j < list.length; j++) {
+          s += ai + list[j][1].x;
+        }
       }
-    }
-    if (s < 0) throw new Error("unreachable");
-  });
+      if (s < 0) throw new Error("unreachable");
+    }),
+  );
 });

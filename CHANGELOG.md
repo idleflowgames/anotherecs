@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+- Update development dependencies and pnpm 12; migrate benchmarks to Vitest 5
+  test-context fixtures and grouped comparisons.
+- Give the demo a named main landmark to satisfy the updated accessibility lint.
+- Add regression coverage proving custom snapshot order leaves subsequent
+  delta serialization canonical.
+
+## 0.1.6
+
+- `Serializer`: new opt-in `SerializerOptions.entityOrder` — a consumer-supplied
+  row-emission order for `snapshot()`, validated as a permutation of the alive
+  union (short, duplicated, or foreign sets throw). `restore()` already replays
+  rows in file order, so emitting a store's entities in dense (swap-delete)
+  order preserves that store's dense-array iteration order byte-exactly across
+  a round-trip. Omitted, snapshots keep the canonical ascending-index order and
+  are byte-identical to 0.1.5; the delta paths always use ascending order.
+  Trade-off named in the module header: a custom order gives up cross-history
+  snapshot canonicality in exchange for order preservation through restore.
+
 ## 0.1.5
 
 - No source changes. Toolchain/deps only: Biome 2.5.6, Vite 8.1.5, Vitest

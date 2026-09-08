@@ -1,4 +1,4 @@
-import { bench, describe } from "vitest";
+import { test } from "vitest";
 import { ComponentStore, type Entity } from "../src/index";
 
 // Array-indexed component stores compared with a Map lookup baseline. Store
@@ -22,30 +22,32 @@ function make(numTypes: number, numEntities: number) {
 
 function scenario(name: string, numTypes: number, numEntities: number) {
   const { map, arr } = make(numTypes, numEntities);
-  describe(name, () => {
-    bench("Map<number, Store>: stores.get(id).get(e)", () => {
-      let sum = 0;
-      for (let id = 0; id < numTypes; id++) {
-        for (let e = 0; e < numEntities; e++) {
-          const s = map.get(id);
-          if (s) {
-            const c = s.get(e as Entity);
+  test(name, async ({ bench }) => {
+    await bench.compare(
+      bench("Map<number, Store>: stores.get(id).get(e)", () => {
+        let sum = 0;
+        for (let id = 0; id < numTypes; id++) {
+          for (let e = 0; e < numEntities; e++) {
+            const s = map.get(id);
+            if (s) {
+              const c = s.get(e as Entity);
+              if (c) sum += c.v;
+            }
+          }
+        }
+        if (sum < 0) throw new Error("unreachable");
+      }),
+      bench("Store[]: stores[id].get(e)", () => {
+        let sum = 0;
+        for (let id = 0; id < numTypes; id++) {
+          for (let e = 0; e < numEntities; e++) {
+            const c = arr[id].get(e as Entity);
             if (c) sum += c.v;
           }
         }
-      }
-      if (sum < 0) throw new Error("unreachable");
-    });
-    bench("Store[]: stores[id].get(e)", () => {
-      let sum = 0;
-      for (let id = 0; id < numTypes; id++) {
-        for (let e = 0; e < numEntities; e++) {
-          const c = arr[id].get(e as Entity);
-          if (c) sum += c.v;
-        }
-      }
-      if (sum < 0) throw new Error("unreachable");
-    });
+        if (sum < 0) throw new Error("unreachable");
+      }),
+    );
   });
 }
 
