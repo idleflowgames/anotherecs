@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.1.8
+
+- `SpatialHash`: reads go through a dense cell index. `insert` now only
+  records the entity and the cell box it covers. The first read after a write
+  lays the occupied cell rectangle out column-major as offsets into one flat
+  entity array, so a query reads plain arrays instead of probing a bucket map
+  per cell. A spread the index cannot lay out (over 65,536 cells, sparser than
+  4,096 cells plus 16 per filed entry, or cell coordinates past 2^20) falls back
+  to the bucket map, filed incrementally from the same records. Reads
+  interleaved with inserts rebuild the index only once a quarter of the records
+  are new, and read the map in between.
+- `query` and `queryRadius` results are unchanged in membership AND in order. A
+  randomized differential test against the frozen 0.1.7 implementation pins
+  this, covering interleaved reads, the bucket-map fallback, NaN coordinates,
+  negative radii and repeat inserts.
+- New `SpatialHash.queryCandidates(x, y, radius, out, filter?, stamp?)`:
+  writes the entities `query` returns, in the same order, to a caller's
+  `Int32Array` and returns how many it wrote, so a caller can run its own narrow
+  phase over a typed buffer with no callback per candidate. With a stamp filter
+  it writes only entities whose `filter[entity] === stamp`, skipping the rest
+  before any other work. A buffer of `maxEntities` always has room; a shorter
+  one that fills up throws a `RangeError`.
+- A whole broadphase frame (`bench/spatial-hash.bench.ts`) is 1.81x faster at
+  50 bodies, 1.91x at 250 and 1.66x at 1000 than 0.1.7.
+
 ## 0.1.7
 
 - Update development dependencies and pnpm 12; migrate benchmarks to Vitest 5

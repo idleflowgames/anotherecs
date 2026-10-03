@@ -182,7 +182,7 @@ function scenario(name: string, count: number, maxEntities: number): void {
       bench("eager per-frame reset (previous)", () => {
         frames(eager, count, 340);
       }),
-      bench("occupancy-accelerated (current)", () => {
+      bench("dense cell index (current)", () => {
         frames(current, count, 340);
       }),
     );
