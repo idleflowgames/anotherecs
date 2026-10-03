@@ -164,8 +164,11 @@ single scheduler or frame loop.
 - **Serialization:** `Serializer` uses consumer-supplied codecs for snapshots,
   deltas, resource persistence, entity-ref remapping, and migration-aware load
   paths.
-- **Spatial hash:** `SpatialHash` provides a small broadphase helper for
-  position-based lookups.
+- **Spatial hash:** `SpatialHash` is a uniform-grid broadphase. `query` and
+  `queryRadius` fill a caller's array; `queryCandidates` writes the same
+  candidates, optionally narrowed by a stamp filter, to a typed buffer for a
+  caller's own narrow phase. Reads go through a dense cell index rebuilt after
+  inserts, with a bucket map for spreads too wide to index.
 
 ## Performance Notes
 
