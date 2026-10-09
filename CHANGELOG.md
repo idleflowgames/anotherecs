@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.9
+
+- `ComponentCodec` and `ResourceCodec` accept an optional `maxBytes` write
+  capacity. Large codecs can reserve sufficient space without increasing the
+  scratch allocation for every other component or resource. Omitted, the
+  existing `SerializerOptions.maxComponentBytes` default of 4096 still applies.
+  Snapshot and delta bytes are unchanged; capacity is not serialized.
+- Invalid capacities and codec write offsets outside the reserved capacity now
+  throw `RangeError`, including offsets that would otherwise silently truncate
+  or corrupt the output.
+
 ## 0.1.8
 
 - `SpatialHash`: reads go through a dense cell index. `insert` now only
