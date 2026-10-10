@@ -163,7 +163,11 @@ single scheduler or frame loop.
   generations so stale ids fail after despawn and recycle.
 - **Serialization:** `Serializer` uses consumer-supplied codecs for snapshots,
   deltas, resource persistence, entity-ref remapping, and migration-aware load
-  paths.
+  paths. Set a component or resource codec's optional `maxBytes` to reserve its
+  maximum write size without increasing every codec's allocation. It overrides
+  `SerializerOptions.maxComponentBytes` (default 4096) for that codec only and
+  does not change snapshot or delta bytes. Capacities must be positive safe
+  integers; codecs must return an integral offset within the reserved capacity.
 - **Spatial hash:** `SpatialHash` is a uniform-grid broadphase. `query` and
   `queryRadius` fill a caller's array; `queryCandidates` writes the same
   candidates, optionally narrowed by a stamp filter, to a typed buffer for a

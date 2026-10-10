@@ -19,7 +19,7 @@ import type { ComponentType, Entity, ResourceType, World } from "./index";
 import { MigrationError, type MigrationRegistry } from "./migration";
 
 export interface SerializerOptions {
-  /** Codec write headroom per component (default 4096). */
+  /** Default codec write capacity in bytes (default 4096; codecs may override). */
   readonly maxComponentBytes?: number;
   /**
    * Optional migration registry. When provided, every component blob is read
@@ -69,6 +69,12 @@ export interface SerializerOptions {
  *   length mismatch and throws rather than silently mis-loading.
  */
 export interface ComponentCodec<T> {
+  /**
+   * Maximum bytes written for one value. Overrides maxComponentBytes for this
+   * codec only; must be a positive safe integer. This is allocation metadata,
+   * not part of the snapshot or delta format.
+   */
+  readonly maxBytes?: number;
   write(view: DataView, offset: number, c: T): number;
   read(view: DataView, offset: number): { value: T; offset: number };
   refFields?: (keyof T)[];
@@ -81,6 +87,8 @@ export interface ComponentCodec<T> {
 
 /** A registered resource codec: same byte contract, no refFields. */
 export interface ResourceCodec<T> {
+  /** Same per-value write capacity contract as ComponentCodec.maxBytes. */
+  readonly maxBytes?: number;
   write(view: DataView, offset: number, value: T): number;
   read(view: DataView, offset: number): { value: T; offset: number };
 }
@@ -90,6 +98,14 @@ const FORMAT_SNAPSHOT = 1;
 const FORMAT_DELTA = 2;
 const FORMAT_VERSION = 1;
 const DEFAULT_MAX_COMPONENT_BYTES = 4096;
+
+function validateWriteCapacity(bytes: number): void {
+  if (!Number.isSafeInteger(bytes) || bytes <= 0) {
+    throw new RangeError(
+      "serialize: write capacity must be a positive safe integer",
+    );
+  }
+}
 
 // biome-ignore lint/suspicious/noExplicitAny: codec registry is value-erased: only the byte layout matters; the consumer owns the typed boundary.
 type AnyCodec = ComponentCodec<any>;
@@ -126,14 +142,23 @@ class ByteWriter {
   }
 
   /**
-   * Write one component via its codec. Pre-`ensure`s `maxComponentBytes` of
-   * headroom so the codec writes into a DataView with room; advances `offset` to
-   * the codec's returned offset. Codecs writing larger blobs must raise
-   * `maxComponentBytes` on the Serializer constructor.
+   * Reserve this codec's capacity (or the serializer default), write its bytes,
+   * and reject offsets outside that budget. The capacity is never serialized.
    */
   writeComponent(codec: AnyCodec, c: unknown, maxComponentBytes: number): void {
-    this.ensure(maxComponentBytes);
-    this.offset = codec.write(this.view, this.offset, c);
+    const capacity = codec.maxBytes ?? maxComponentBytes;
+    this.ensure(capacity);
+    const end = codec.write(this.view, this.offset, c);
+    if (
+      !Number.isSafeInteger(end) ||
+      end < this.offset ||
+      end - this.offset > capacity
+    ) {
+      throw new RangeError(
+        "serialize: codec write offset exceeds its capacity",
+      );
+    }
+    this.offset = end;
   }
 
   /** Write one resource via its codec (same headroom contract as a component). */
@@ -142,8 +167,7 @@ class ByteWriter {
     value: unknown,
     maxComponentBytes: number,
   ): void {
-    this.ensure(maxComponentBytes);
-    this.offset = codec.write(this.view, this.offset, value);
+    this.writeComponent(codec, value, maxComponentBytes);
   }
 
   /** Return an exact-length copy of the written bytes. */
@@ -217,6 +241,7 @@ export class Serializer {
   constructor(options?: SerializerOptions) {
     this.maxComponentBytes =
       options?.maxComponentBytes ?? DEFAULT_MAX_COMPONENT_BYTES;
+    validateWriteCapacity(this.maxComponentBytes);
     this.migrations = options?.migrations;
     this.entityOrder = options?.entityOrder;
   }
@@ -269,6 +294,7 @@ export class Serializer {
 
   /** Register a binary codec for a component type. Chainable. */
   register<T>(def: ComponentType<T>, codec: ComponentCodec<T>): this {
+    if (codec.maxBytes !== undefined) validateWriteCapacity(codec.maxBytes);
     this.codecs.set(def.id, {
       def: def as ComponentType<unknown>,
       codec: codec as AnyCodec,
@@ -279,6 +305,7 @@ export class Serializer {
 
   /** Register a resource to include in snapshots (optional, opt-in). */
   registerResource<T>(type: ResourceType<T>, codec: ResourceCodec<T>): this {
+    if (codec.maxBytes !== undefined) validateWriteCapacity(codec.maxBytes);
     this.resourceCodecs.set(type.id, {
       type: type as ResourceType<unknown>,
       codec: codec as AnyResourceCodec,
